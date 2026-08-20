@@ -2141,6 +2141,407 @@ Por favor agrega a TODOS los correos de la lista como attendees del evento.`}],
 }
 
 // ─── AI EXTRACTOR ─────────────────────────────────────────────
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+//  IMPORTADOR MASIVO  \u00b7  CSV y PDF  \u00b7  SIN IA, sin costo de API
+//  ---------------------------------------------------------------
+//  \u00b7 CSV: se lee entero en el propio tel\u00e9fono.
+//  \u00b7 PDF de texto: se extrae el texto con sus coordenadas y se
+//    reconstruyen las filas y columnas de la tabla.
+//  \u00b7 PDF escaneado (solo im\u00e1genes): no hay texto que leer \u2014 se avisa
+//    y se sugiere el importador con IA, que s\u00ed puede verlo.
+//  El CANAL (agregado / distribuci\u00f3n / referido / prospecto) puede
+//  venir en una columna: cada fila se guarda donde le toca.
+//  Las columnas que no se mapean NO se pierden: se guardan en
+//  "otros detalles" con su nombre original.
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+// Divide una l\u00ednea de CSV respetando comillas y el separador detectado.
+function partirLineaCSV(linea, sep){
+  const out=[]; let campo=""; let enComillas=false;
+  for(let i=0;i<linea.length;i++){
+    const c=linea[i];
+    if(enComillas){
+      if(c==='"'){ if(linea[i+1]==='"'){ campo+='"'; i++; } else enComillas=false; }
+      else campo+=c;
+    } else {
+      if(c==='"') enComillas=true;
+      else if(c===sep){ out.push(campo); campo=""; }
+      else campo+=c;
+    }
+  }
+  out.push(campo);
+  return out.map(x=>x.trim());
+}
+
+// Texto CSV \u2192 { columnas, filas }
+function leerCSV(texto){
+  let t=String(texto||"").replace(/^\uFEFF/,"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  const primera=t.split("\n")[0]||"";
+  const cand=[",",";","\t","|"];
+  let sep=","; let mejor=-1;
+  cand.forEach(c=>{ const n=partirLineaCSV(primera,c).length; if(n>mejor){ mejor=n; sep=c; } });
+  // Une l\u00edneas partidas por saltos dentro de comillas
+  const lineas=[]; let actual=""; let comillas=0;
+  t.split("\n").forEach(l=>{
+    const n=(l.match(/"/g)||[]).length;
+    actual = actual ? actual+"\n"+l : l;
+    comillas+=n;
+    if(comillas%2===0){ lineas.push(actual); actual=""; comillas=0; }
+  });
+  if(actual) lineas.push(actual);
+  const utiles=lineas.filter(l=>l.trim()!=="");
+  if(!utiles.length) return { columnas:[], filas:[], sep };
+  const columnas=nombrarColumnas(partirLineaCSV(utiles[0],sep));
+  const filas=utiles.slice(1).map(l=>{
+    const celdas=partirLineaCSV(l,sep);
+    const o={}; columnas.forEach((c,i)=>{ o[c]= celdas[i]!==undefined ? celdas[i] : ""; });
+    return o;
+  }).filter(f=>Object.values(f).some(v=>String(v).trim()!==""));
+  return { columnas, filas, sep };
+}
+
+// Evita columnas vac\u00edas o repetidas (romper\u00edan el mapeo).
+function nombrarColumnas(brutas){
+  const vistas={}; 
+  return (brutas||[]).map((c,i)=>{
+    let n=String(c||"").trim() || `Columna ${i+1}`;
+    if(vistas[n]!==undefined){ vistas[n]++; n=`${n} (${vistas[n]})`; } else vistas[n]=1;
+    return n;
+  });
+}
+
+// \u2500\u2500\u2500 PDF \u2192 filas de tabla \u2500\u2500\u2500
+// pdf.js entrega cada trozo de texto con su posici\u00f3n (x,y). Agrupamos por
+// altura para formar filas, y ordenamos por x para formar las columnas.
+async function leerPDF(arrayBuffer, onProgreso){
+  const pdfjs = await import("pdfjs-dist");
+  const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  const doc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  const filasCrudas=[];
+  for(let np=1; np<=doc.numPages; np++){
+    if(onProgreso) onProgreso(np, doc.numPages);
+    const pagina = await doc.getPage(np);
+    const contenido = await pagina.getTextContent();
+    const piezas = contenido.items
+      .filter(it => it && typeof it.str === "string" && it.str.trim() !== "")
+      .map(it => ({ t: it.str.trim(), x: it.transform[4], y: it.transform[5] }));
+    // Agrupar por l\u00ednea: misma "y" con tolerancia (el texto de una fila
+    // rara vez queda exactamente a la misma altura).
+    const lineas=[];
+    piezas.forEach(pz=>{
+      const l = lineas.find(L => Math.abs(L.y - pz.y) <= 3.2);
+      if(l){ l.piezas.push(pz); l.y=(l.y*l.piezas.length + pz.y)/(l.piezas.length+1); }
+      else lineas.push({ y: pz.y, piezas:[pz] });
+    });
+    lineas.sort((a,b)=> b.y - a.y);   // en PDF la y crece hacia arriba
+    lineas.forEach(L=>{
+      L.piezas.sort((a,b)=> a.x - b.x);
+      // Unir trozos muy pegados (una misma palabra partida por el PDF)
+      const celdas=[]; let acc=null;
+      L.piezas.forEach(pz=>{
+        if(acc && (pz.x - acc.xFin) < 6){ acc.t += (pz.x - acc.xFin > 1 ? " " : "") + pz.t; acc.xFin = pz.x + pz.t.length*4.2; }
+        else { if(acc) celdas.push(acc); acc={ t:pz.t, x:pz.x, xFin: pz.x + pz.t.length*4.2 }; }
+      });
+      if(acc) celdas.push(acc);
+      if(celdas.length) filasCrudas.push(celdas.map(c=>c.t));
+    });
+  }
+  return filasCrudas;
+}
+
+// Campos del CRM a los que se puede mapear una columna.
+const CAMPOS_IMP = [
+  { k:"",              l:"\u2014 Otros detalles \u2014" },
+  { k:"nombre",        l:"Nombre" },
+  { k:"apellido",      l:"Apellido" },
+  { k:"canal",         l:"CANAL (agregado/distrib/ref/prosp)" },
+  { k:"cuenta",        l:"N\u00famero de cuenta" },
+  { k:"telefono",      l:"Tel\u00e9fono" },
+  { k:"telefonoMovil", l:"Tel\u00e9fono m\u00f3vil" },
+  { k:"telefonoCasa",  l:"Tel\u00e9fono casa" },
+  { k:"telefonoTrabajo",l:"Tel\u00e9fono trabajo" },
+  { k:"direccion",     l:"Direcci\u00f3n" },
+  { k:"ciudad",        l:"Ciudad" },
+  { k:"cp",            l:"C\u00f3digo postal" },
+  { k:"producto",      l:"Producto" },
+  { k:"vendedor",      l:"Vendedor" },
+  { k:"anfitrion",     l:"Anfitri\u00f3n (para referidos)" },
+  { k:"nivelCliente",  l:"Nivel de cliente" },
+  { k:"limiteCredito", l:"L\u00edmite de cr\u00e9dito" },
+  { k:"saldoActual",   l:"Saldo actual" },
+  { k:"fuente",        l:"Fuente" },
+  { k:"ultima_compra", l:"\u00daltima compra" },
+  { k:"observaciones", l:"Observaciones" },
+  { k:"omitir",        l:"\u2715 No importar" },
+];
+
+// Adivina el campo por el nombre de la columna.
+function adivinarCampo(nombreCol){
+  const t=String(nombreCol||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+  const tiene=(...ps)=>ps.some(x=>t.includes(x));
+  if(tiene("canal","seccion","secci\u00f3n","tipo de cliente","categoria","base")) return "canal";
+  if(tiene("anfitrion","host","quien refiere","refiere")) return "anfitrion";
+  if(tiene("apellido","last name","surname")) return "apellido";
+  if(tiene("movil","celular","cell","mobile")) return "telefonoMovil";
+  if(tiene("casa","home")&&tiene("tel","phone")) return "telefonoCasa";
+  if(tiene("trabajo","work","oficina")&&tiene("tel","phone")) return "telefonoTrabajo";
+  if(tiene("telefono","phone","tel.","numero de tel","contacto")) return "telefono";
+  if(tiene("cuenta","account","acct","no. cta","nro cta")) return "cuenta";
+  if(tiene("nombre","name","cliente","customer")) return "nombre";
+  if(tiene("direccion","address","domicilio","calle")) return "direccion";
+  if(tiene("ciudad","city","municipio")) return "ciudad";
+  if(tiene("postal","zip","c.p")) return "cp";
+  if(tiene("producto","product","articulo")) return "producto";
+  if(tiene("vendedor","seller","asesor")) return "vendedor";
+  if(tiene("nivel","level")) return "nivelCliente";
+  if(tiene("limite")) return "limiteCredito";
+  if(tiene("saldo","balance","deuda")) return "saldoActual";
+  if(tiene("fuente","source","origen")) return "fuente";
+  if(tiene("ultima compra","last purchase")) return "ultima_compra";
+  if(tiene("observacion","nota","note","comment","detalle")) return "observaciones";
+  return "";
+}
+
+// Texto del canal \u2192 secci\u00f3n real de la app.
+function canalASeccion(valor){
+  const t=String(valor||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+  if(!t) return null;
+  if(t.includes("refer")) return "referidos";
+  if(t.includes("distrib") || t.includes("reparto")) return "distribucion";
+  if(t.includes("prospec") || t.includes("prospect")) return "prospectos";
+  if(t.includes("agregad") || t.includes("cliente") || t.includes("added")) return "agregados";
+  return null;
+}
+const SEC_NOMBRE = { agregados:"Clientes (Agregados)", prospectos:"Prospecci\u00f3n", distribucion:"Distribuci\u00f3n", referidos:"Referidos" };
+
+function ImportadorMasivo({ onListo, onClose }){
+  const [paso,setPaso]=useState(1);
+  const [nombreArch,setNombreArch]=useState("");
+  const [columnas,setColumnas]=useState([]);
+  const [filas,setFilas]=useState([]);
+  const [mapa,setMapa]=useState({});
+  const [destDefecto,setDestDefecto]=useState("agregados");
+  const [error,setError]=useState("");
+  const [cargando,setCargando]=useState("");
+  const [pdfCrudo,setPdfCrudo]=useState(null);   // filas del PDF antes de elegir encabezado
+  const [filaEncab,setFilaEncab]=useState(0);
+  const fileRef=useRef(null);
+
+  const prepararTabla=(cols,fs,nombre)=>{
+    const m={}; cols.forEach(c=>{ m[c]=adivinarCampo(c); });
+    setColumnas(cols); setFilas(fs); setMapa(m); setNombreArch(nombre);
+    setError(""); setCargando(""); setPaso(2);
+  };
+
+  const alElegirArchivo=async (e)=>{
+    const f=e.target.files&&e.target.files[0];
+    if(!f) return;
+    setError(""); setPdfCrudo(null);
+    if(/\.xlsx?$/i.test(f.name)){
+      setError("Los archivos de Excel (.xls/.xlsx) no se leen directo. \u00c1brelo en Excel o Numbers \u2192 Exportar \u2192 CSV, y sube ese archivo.");
+      return;
+    }
+    if(/\.pdf$/i.test(f.name) || f.type==="application/pdf"){
+      try{
+        setCargando("Leyendo PDF\u2026");
+        const buf=await f.arrayBuffer();
+        const crudas=await leerPDF(buf,(n,total)=>setCargando(`Leyendo PDF\u2026 p\u00e1gina ${n} de ${total}`));
+        if(!crudas.length){
+          setCargando("");
+          setError("Este PDF no tiene texto \u2014 es un escaneo o una foto. Para leerlo usa el bot\u00f3n \u00abImportar con IA\u00bb, que s\u00ed puede verlo.");
+          return;
+        }
+        setPdfCrudo(crudas); setNombreArch(f.name); setFilaEncab(0);
+        setCargando(""); setPaso(1.5);
+      }catch(err){
+        setCargando("");
+        setError("No se pudo leer el PDF: "+(err&&err.message?err.message:"error"));
+      }
+      return;
+    }
+    const lector=new FileReader();
+    lector.onload=()=>{
+      try{
+        const { columnas:cols, filas:fs } = leerCSV(String(lector.result||""));
+        if(!cols.length || !fs.length){ setError("No se encontraron filas con datos. \u00bfEl archivo tiene encabezados en la primera fila?"); return; }
+        prepararTabla(cols,fs,f.name);
+      }catch(err){ setError("No se pudo leer el archivo: "+(err&&err.message?err.message:"error")); }
+    };
+    lector.onerror=()=>setError("No se pudo abrir el archivo.");
+    lector.readAsText(f,"UTF-8");
+  };
+
+  // Confirmar cu\u00e1l fila del PDF es el encabezado y armar la tabla.
+  const confirmarEncabezadoPDF=()=>{
+    const cols=nombrarColumnas(pdfCrudo[filaEncab]||[]);
+    const cuerpo=pdfCrudo.slice(filaEncab+1)
+      .filter(r=>r.length>1)
+      .map(r=>{ const o={}; cols.forEach((c,i)=>{ o[c]= r[i]!==undefined ? r[i] : ""; }); return o; })
+      .filter(f=>Object.values(f).some(v=>String(v).trim()!==""));
+    if(!cuerpo.length){ setError("Con esa fila como encabezado no quedaron datos. Prueba con otra."); return; }
+    prepararTabla(cols,cuerpo,nombreArch);
+  };
+
+  // Construye los registros finales, agrupados por canal.
+  const construir=()=>{
+    const porSeccion={ agregados:[], prospectos:[], distribucion:[], referidos:[] };
+    filas.forEach(f=>{
+      const r={}; const extras=[];
+      let apellido="", canalTxt="", anfitrion="";
+      columnas.forEach(c=>{
+        const campo=mapa[c];
+        const val=String(f[c]==null?"":f[c]).trim();
+        if(!val || campo==="omitir") return;
+        if(campo==="apellido"){ apellido=val; return; }
+        if(campo==="canal"){ canalTxt=val; return; }
+        if(campo==="anfitrion"){ anfitrion=val; return; }
+        if(!campo){ extras.push(`${c}: ${val}`); return; }   // nada se pierde
+        r[campo]= r[campo] ? `${r[campo]} / ${val}` : val;
+      });
+      // Nombre + apellido se unen con un espacio (no con barra).
+      if(apellido) r.nombre = r.nombre ? `${r.nombre} ${apellido}` : apellido;
+      if(extras.length) r.otrosDetalles = r.otrosDetalles ? `${r.otrosDetalles} \u00b7 ${extras.join(" \u00b7 ")}` : extras.join(" \u00b7 ");
+      if(!r.telefono && r.telefonoMovil) r.telefono=r.telefonoMovil;
+      if(!r.telefono && r.telefonoCasa)  r.telefono=r.telefonoCasa;
+      const tieneAlgo = (r.nombre&&r.nombre.trim()) || (r.telefono&&r.telefono.trim()) || (r.cuenta&&r.cuenta.trim());
+      if(!tieneAlgo) return;
+      const sec = canalASeccion(canalTxt) || (anfitrion ? "referidos" : destDefecto);
+      if(sec==="referidos") porSeccion.referidos.push({ ...r, _anfitrion: anfitrion });
+      else porSeccion[sec].push(r);
+    });
+    return porSeccion;
+  };
+
+  const grupos = paso>=2 ? construir() : { agregados:[], prospectos:[], distribucion:[], referidos:[] };
+  const totalListos = Object.values(grupos).reduce((a,l)=>a+l.length,0);
+  const hayCanal = Object.values(mapa).includes("canal");
+  const hayContacto = Object.values(mapa).some(v=> v==="nombre"||v==="apellido"||v==="cuenta"||(v&&v.indexOf("telefono")===0));
+
+  return (
+    <div className="space-y-3">
+      {error && <div className="text-xs font-bold text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2 leading-relaxed">{error}</div>}
+      {cargando && <div className="text-xs font-bold text-[#5b21b6] bg-[#f1ecfd] rounded-xl px-3 py-2">{cargando}</div>}
+
+      {paso===1 && (
+        <>
+          <div className="text-sm text-slate-600 leading-relaxed">
+            Sube un <b>CSV</b> o un <b>PDF con texto</b>. Se lee aqu\u00ed mismo, en tu tel\u00e9fono \u2014 sin usar inteligencia artificial y sin costo.
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,.pdf,text/csv,text/plain,application/pdf" onChange={alElegirArchivo} className="hidden" />
+          <button onClick={()=>fileRef.current&&fileRef.current.click()}
+            className="w-full py-4 rounded-2xl font-black text-white text-sm active:scale-95 transition" style={{background:RP.navy}}>
+            <Ico e="\U0001F4C4" className="mr-1.5" />Elegir archivo (CSV o PDF)
+          </button>
+          <div className="text-[11px] text-slate-400 leading-relaxed">
+            \u00b7 <b>Excel:</b> \u00e1brelo y usa Exportar \u2192 CSV.<br/>
+            \u00b7 <b>PDF escaneado</b> (no se puede seleccionar su texto): usa el bot\u00f3n de IA.<br/>
+            \u00b7 Si el archivo trae una columna de <b>canal</b>, cada fila se guarda en su secci\u00f3n sola.
+          </div>
+        </>
+      )}
+
+      {paso===1.5 && pdfCrudo && (
+        <>
+          <div className="text-xs font-bold text-slate-500"><Ico e="\u2705" /> {nombreArch} \u00b7 {pdfCrudo.length} l\u00edneas le\u00eddas</div>
+          <div className="text-sm font-black text-[#5b21b6] uppercase tracking-wider">\u00bfCu\u00e1l fila tiene los t\u00edtulos?</div>
+          <div className="text-[11px] text-slate-400">Toca la fila que contiene los nombres de las columnas (Nombre, Tel\u00e9fono\u2026). Lo de arriba suele ser el membrete del reporte.</div>
+          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+            {pdfCrudo.slice(0,12).map((r,i)=>(
+              <button key={i} onClick={()=>setFilaEncab(i)}
+                className={`w-full text-left px-3 py-2 rounded-xl border-2 transition ${filaEncab===i?"border-[#7c3aed] bg-[#f1ecfd]":"border-[#e8edf3] bg-white"}`}>
+                <div className="text-[11px] font-bold text-slate-600">Fila {i+1} \u00b7 {r.length} celdas</div>
+                <div className="text-[11px] text-slate-500 truncate">{r.map(c=>c.t).join(" \u2502 ").slice(0,90)}</div>
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={()=>{setPaso(1);setPdfCrudo(null);}} className="px-4 py-3 rounded-xl text-xs font-bold bg-[#f4f6f9] text-slate-600">\u2190 Otro archivo</button>
+            <button onClick={confirmarEncabezadoPDF} className="flex-1 py-3 rounded-xl text-sm font-black text-white" style={{background:RP.navy}}>Continuar \u203a</button>
+          </div>
+        </>
+      )}
+
+      {paso===2 && (
+        <>
+          <div className="text-xs font-bold text-slate-500"><Ico e="\u2705" /> {nombreArch} \u00b7 {filas.length.toLocaleString()} filas \u00b7 {columnas.length} columnas</div>
+          <div className="text-sm font-black text-[#5b21b6] uppercase tracking-wider">\u00bfQu\u00e9 es cada columna?</div>
+          <div className="text-[11px] text-slate-400 leading-relaxed">Lo que dejes en \u00abOtros detalles\u00bb igual se guarda, con el nombre de su columna.</div>
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {columnas.map(c=>(
+              <div key={c} className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold truncate">{c}</div>
+                  <div className="text-[10px] text-slate-400 truncate">ej: {String((filas[0]||{})[c]||"").slice(0,26)||"(vac\u00edo)"}</div>
+                </div>
+                <select value={mapa[c]||""} onChange={e=>setMapa(m=>({...m,[c]:e.target.value}))}
+                  className="text-xs border-2 border-[#e5def4] rounded-lg px-2 py-1.5 bg-white shrink-0" style={{maxWidth:"50%"}}>
+                  {CAMPOS_IMP.map(f=><option key={f.k} value={f.k}>{f.l}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          {!hayContacto && <div className="text-[11px] font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Marca al menos una columna como Nombre, Tel\u00e9fono o N\u00famero de cuenta.</div>}
+          <div className="flex gap-2">
+            <button onClick={()=>{setPaso(pdfCrudo?1.5:1);}} className="px-4 py-3 rounded-xl text-xs font-bold bg-[#f4f6f9] text-slate-600">\u2190 Atr\u00e1s</button>
+            <button onClick={()=>setPaso(3)} disabled={!hayContacto} className="flex-1 py-3 rounded-xl text-sm font-black text-white disabled:opacity-50" style={{background:RP.navy}}>Continuar \u203a</button>
+          </div>
+        </>
+      )}
+
+      {paso===3 && (
+        <>
+          {!hayCanal && (
+            <>
+              <div className="text-sm font-black text-[#5b21b6] uppercase tracking-wider">\u00bfD\u00f3nde se guardan?</div>
+              <div className="text-[11px] text-slate-400">El archivo no trae columna de canal, as\u00ed que todo va a la misma secci\u00f3n.</div>
+              <div className="grid grid-cols-1 gap-2">
+                {["agregados","prospectos","distribucion"].map(v=>(
+                  <button key={v} onClick={()=>setDestDefecto(v)}
+                    className={`text-left px-4 py-3 rounded-2xl border-2 transition ${destDefecto===v?"border-[#7c3aed] bg-[#f1ecfd]":"border-[#e8edf3] bg-white"}`}>
+                    <div className="font-bold text-sm">{SEC_NOMBRE[v]}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="rounded-xl bg-[#f4f6f9] p-3">
+            <div className="text-xs font-black text-slate-600 mb-1.5">Se van a importar {totalListos.toLocaleString()} registros</div>
+            {Object.keys(grupos).filter(k=>grupos[k].length).map(k=>(
+              <div key={k} className="text-[11px] text-slate-500 flex justify-between border-t border-[#e8edf3] pt-1 mt-1">
+                <span>{SEC_NOMBRE[k]}</span><b className="text-slate-700">{grupos[k].length.toLocaleString()}</b>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-xl bg-[#f4f6f9] p-3">
+            <div className="text-xs font-black text-slate-600 mb-1">Vista previa</div>
+            {[...grupos.agregados,...grupos.prospectos,...grupos.distribucion,...grupos.referidos].slice(0,3).map((r,i)=>(
+              <div key={i} className="text-[11px] text-slate-500 border-t border-[#e8edf3] pt-1.5 mt-1.5">
+                <b className="text-slate-700">{r.nombre||"(sin nombre)"}</b>
+                {r.telefono?` \u00b7 ${r.telefono}`:""}{r.cuenta?` \u00b7 cta ${r.cuenta}`:""}
+                {r.otrosDetalles?<div className="text-slate-400 truncate">{r.otrosDetalles}</div>:null}
+              </div>
+            ))}
+          </div>
+
+          <div className="text-[11px] text-slate-400 leading-relaxed">
+            Los repetidos se detectan solos (por cuenta, tel\u00e9fono o nombre) y se te muestran para revisar antes de guardar.
+          </div>
+          <div className="flex gap-2">
+            <button onClick={()=>setPaso(2)} className="px-4 py-3 rounded-xl text-xs font-bold bg-[#f4f6f9] text-slate-600">\u2190 Columnas</button>
+            <button onClick={()=>onListo(grupos)} disabled={!totalListos}
+              className="flex-1 py-3 rounded-xl text-sm font-black text-white disabled:opacity-50" style={{background:RP.navy}}>
+              Importar {totalListos.toLocaleString()}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AIExtractor({ onExtracted, onClose }) {
   const [files,setFiles]=useState([]);const [loading,setLoading]=useState(false);
   const [preview,setPreview]=useState(null);const [refPreview,setRefPreview]=useState(null);
@@ -13734,7 +14135,7 @@ function FirebaseLoginScreen({ onLogin, onReset, error, busy }) {
 // (El LoginScreen viejo de claves locales fue eliminado — el login es 100% Firebase.)
 
 export default function App() {
-  const [tab,setTab]=useState("inicio");const [sideOpen,setSideOpen]=useState(false);const [showAI,setShowAI]=useState(false);
+  const [tab,setTab]=useState("inicio");const [sideOpen,setSideOpen]=useState(false);const [showAI,setShowAI]=useState(false);const [showCSV,setShowCSV]=useState(false);
   const [dbOpen,setDbOpen]=useState(false); // grupo desplegable "Base de datos" en el menú lateral
   const role="admin"; // todos tienen acceso completo
   // ── Firebase Auth: estado de sesión ──
@@ -13941,6 +14342,77 @@ export default function App() {
   const [refReview,setRefReview]=useState(null);  // referidos a revisar/editar antes de guardar
   const SLABEL = {agregados:"📂 Agregados", prospectos:"🔍 Prospección", distribucion:"🏠 Distribución", referidos:"🎁 Referidos"};
 
+  // Importación masiva (CSV/PDF): los registros ya vienen separados por
+  // canal. Se deduplica cada uno contra la base Y contra el propio archivo,
+  // y TODO se guarda en una sola actualización de estado — hacerlo en
+  // varias seguidas provocaba que una pisara a la otra.
+  const guardarImportacionMasiva=(grupos)=>{
+    setShowCSV(false);
+    const secciones=["agregados","prospectos","distribucion"];
+    const vistos=new Set();
+    const nuevos={}; let totalNuevos=0, totalDup=0;
+    const resumen=[];
+
+    secciones.forEach(sec=>{
+      const entrantes=grupos[sec]||[];
+      if(!entrantes.length) return;
+      const base = sec==="prospectos" ? emptyProspecto : sec==="distribucion" ? emptyDistribucion : emptyClient;
+      const frescos=[];
+      entrantes.forEach(r0=>{
+        const r={ ...base(), ...r0, id:genId(), creado:new Date().toISOString() };
+        const kNom=contactKey(r);
+        const kCta=normCuenta(r.cuenta);
+        const repetidoEnArchivo = vistos.has("n:"+kNom) || (kCta && vistos.has("c:"+kCta));
+        const repetidoEnBase = findDuplicate(r, allData);
+        if(repetidoEnArchivo || repetidoEnBase){ totalDup++; return; }
+        vistos.add("n:"+kNom); if(kCta) vistos.add("c:"+kCta);
+        frescos.push(r);
+      });
+      if(frescos.length){ nuevos[sec]=frescos; totalNuevos+=frescos.length; resumen.push(`${frescos.length} en ${SLABEL[sec]||sec}`); }
+    });
+
+    // Referidos: cada anfitrión con su gente. Sin anfitrión indicado, la
+    // propia persona encabeza su programa (así no se pierde el registro).
+    const refs=grupos.referidos||[];
+    let progNuevos=[];
+    if(refs.length){
+      const porAnfitrion={};
+      refs.forEach(r=>{
+        const anf=(r._anfitrion||"").trim() || (r.nombre||"").trim();
+        if(!porAnfitrion[anf]) porAnfitrion[anf]={ ...emptyReferido(), id:genId(), anfitrion:anf, referidos:[] };
+        // Si la fila ES el anfitrión mismo, sus datos van a la cabecera.
+        if(!(r._anfitrion||"").trim()){
+          porAnfitrion[anf].anfitrion_telefono = porAnfitrion[anf].anfitrion_telefono || r.telefono || "";
+          porAnfitrion[anf].anfitrion_ciudad   = porAnfitrion[anf].anfitrion_ciudad   || r.ciudad   || "";
+          porAnfitrion[anf].anfitrion_cuenta   = porAnfitrion[anf].anfitrion_cuenta   || r.cuenta   || "";
+        } else {
+          porAnfitrion[anf].referidos.push({
+            nombre:r.nombre||"", telefono:r.telefono||"", direccion:r.direccion||"", ciudad:r.ciudad||"",
+            cp:r.cp||"", producto:r.producto||"", observaciones:r.observaciones||"", detalles:r.otrosDetalles||"",
+            parentesco:"", estado:"sin_estado", ultimaNota:"", notas:[], historial:[],
+            proximo_seguimiento:"", creado:new Date().toISOString(), actualizado:"",
+          });
+        }
+      });
+      progNuevos=Object.values(porAnfitrion).filter(p=>p.anfitrion || (p.referidos||[]).length);
+      if(progNuevos.length){ totalNuevos+=progNuevos.length; resumen.push(`${progNuevos.length} programa(s) de referidos`); }
+    }
+
+    if(!totalNuevos && !totalDup){ setImportMsg("No se importó nada — revisa el mapeo de columnas."); setTimeout(()=>setImportMsg(""),6000); return; }
+
+    // UNA sola actualización con todas las secciones tocadas.
+    setState(prev=>{
+      const sig={ ...prev };
+      Object.keys(nuevos).forEach(sec=>{ sig[sec]=[...nuevos[sec], ...(prev[sec]||[])]; });
+      if(progNuevos.length) sig.referidos=[...progNuevos, ...(prev.referidos||[])];
+      return sig;
+    });
+
+    setImportMsg(`✅ ${totalNuevos} registro(s) importados · ${resumen.join(" · ")}${totalDup?` · ${totalDup} duplicado(s) omitido(s)`:""}`);
+    if(totalNuevos) notify("datos", `📂 Importación masiva de ${agenteActivo}`, `${totalNuevos} registro(s) · ${resumen.join(" · ")}`, "Base de datos");
+    setTimeout(()=>setImportMsg(""),9000);
+  };
+
   const handleAIExtracted=(records,dest)=>{
     if(dest==="referidos"){ setShowAI(false); setRefReview(records); return; }
     const recs=records.map(r=>({...emptyClient(),...r,id:genId(),creado:new Date().toISOString(),...(dest==="prospectos"?{fuente:r.fuente||"Importado IA"}:{}),...(dest==="distribucion"?{ultima_compra:""}:{})}));
@@ -14104,6 +14576,7 @@ export default function App() {
             </button>
           </div>
           <PrimaryBtn onClick={()=>{setShowAI(true);setSideOpen(false);}} full><Ico e="🤖" className="mr-1.5" />Importar con IA</PrimaryBtn>
+          <button onClick={()=>{setShowCSV(true);setSideOpen(false);}} className="w-full mt-2 py-2.5 rounded-xl text-xs font-bold border-2 border-[#e5def4] text-[#5b21b6] active:scale-95 transition"><Ico e="📄" className="mr-1.5" />Importar CSV o PDF (sin IA)</button>
         </div>
       </aside>
 
@@ -14183,6 +14656,7 @@ export default function App() {
         </main>
       </div>
       {showAI && <Modal title="🤖 Importar datos con IA" onClose={()=>setShowAI(false)}><AIExtractor onExtracted={handleAIExtracted} onClose={()=>setShowAI(false)} /></Modal>}
+      {showCSV && <Modal title="📄 Importar CSV o PDF — sin IA" onClose={()=>setShowCSV(false)}><ImportadorMasivo onListo={guardarImportacionMasiva} onClose={()=>setShowCSV(false)} /></Modal>}
       {refReview && <RefReviewModal records={refReview} onSave={guardarReferidos} onClose={()=>setRefReview(null)} />}
       {dupReview && <Modal title="⚠️ Datos duplicados detectados" onClose={()=>setDupReview(null)}>
         <div className="space-y-4">
