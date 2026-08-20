@@ -3199,7 +3199,7 @@ function ClientRow({ c, onStatusChange, onEdit, onSchedule, onDelete, onRestore,
                         <div key={i} className="bg-[#f4f6f9] rounded-lg px-2 py-1.5 text-[11px]">
                           <div className="text-slate-700">{n.texto}</div>
                           <div className="text-[9px] text-slate-400 mt-0.5">
-                            {fechaOk ? <><Ico e="📅" className="mr-1.5" />{d.toLocaleDateString("es-MX",{day:"numeric",month:"short"})} 🕐 {d.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</> : <><Ico e="📅" className="mr-1" />—</>}{n.agente?` · 👤 ${n.agente}`:""}
+                            {fechaOk ? <><Ico e="📅" className="mr-1.5" />{d.toLocaleDateString("es-MX",{day:"numeric",month:"short"})} <Ico e="🕐" /> {d.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</> : <><Ico e="📅" className="mr-1" />—</>}{n.agente?<> · <Ico e="👤" /> {n.agente}</>:null}
                           </div>
                         </div>
                       );
@@ -13594,9 +13594,9 @@ function RutaCrear({ candidatos, agentes, agente, onSave, onClose }) {
 // Cada servicio puede marcarse: realizado / no realizado, y guardar nota.
 // El servicio SIEMPRE se ve rojo; solo el indicador "se realizó" se pone verde.
 const SERVICIO_ESTADO = {
-  pendiente:    { ico:"🔧", label:"Pendiente",     bg:"#fde8e8", color:"#b91c1c", dot:"#ef4444" },
-  realizado:    { ico:"✅", label:"Se realizó",    bg:"#fde8e8", color:"#047857", dot:"#16a34a" },
-  no_realizado: { ico:"❌", label:"No se realizó", bg:"#fde8e8", color:"#b91c1c", dot:"#ef4444" },
+  pendiente:    { ico:"🔧", label:"Pendiente",     bg:"rgba(248,113,113,0.14)", color:"#FCA5A5", dot:"#ef4444" },
+  realizado:    { ico:"✅", label:"Se realizó",    bg:"rgba(74,222,128,0.14)",  color:"#6EE7B7", dot:"#16a34a" },
+  no_realizado: { ico:"❌", label:"No se realizó", bg:"rgba(248,113,113,0.14)", color:"#FCA5A5", dot:"#ef4444" },
 };
 
 // ── CARTUCHOS Y FILTROS (dentro de Servicios): todos los cambios ordenados
@@ -13796,12 +13796,12 @@ function ServicioSection({ appts, setAppts, agente, notify, allData }) {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full" style={{background:info.dot}} />
-                      <span className="font-black text-[#1f2d3d] text-sm">{s.nombre||"Cliente"}</span>
+                      <span className="font-black text-sm" style={{color:"#F4F4F1"}}>{s.nombre||"Cliente"}</span>
                       {esHoy && <span className="text-[9px] font-black text-white bg-[#16a34a] px-1.5 py-0.5 rounded-full">HOY</span>}
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{background:est==="realizado"?"#16a34a":"#dc2626"}}>{info.label}</span>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1"><Ico e="🗓" className="mr-1.5" />{fechaStr}{horaStr?` · 🕐 ${horaStr}`:""}{s.agente?` · 👤 ${s.agente}`:""}</div>
+                  <div className="text-[11px] mt-1" style={{color:"#A5A9B0"}}><Ico e="🗓" className="mr-1.5" />{fechaStr}{horaStr?<> · <Ico e="🕐" /> {horaStr}</>:null}{s.agente?<> · <Ico e="👤" /> {s.agente}</>:null}</div>
                 </div>
                 <div className="p-3">
                   {/* Info del cliente */}
@@ -13866,7 +13866,7 @@ function ServicioSection({ appts, setAppts, agente, notify, allData }) {
                             return (
                               <div key={i} className="bg-[#f4f6f9] rounded-lg px-2 py-1.5 text-[11px]">
                                 <div className="text-slate-700">{n.texto}</div>
-                                <div className="text-[9px] text-slate-400 mt-0.5"><Ico e="📅" className="mr-1.5" />{nd.toLocaleDateString("es-MX",{day:"numeric",month:"short"})} 🕐 {nd.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}{n.agente?` · 👤 ${n.agente}`:""}</div>
+                                <div className="text-[9px] text-slate-400 mt-0.5"><Ico e="📅" className="mr-1.5" />{nd.toLocaleDateString("es-MX",{day:"numeric",month:"short"})} 🕐 {nd.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}{n.agente?<> · <Ico e="👤" /> {n.agente}</>:null}</div>
                               </div>
                             );
                           })}
