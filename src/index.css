@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════
+   IMPACT OS — CAPA DE TEMA OSCURO PREMIUM
+   Basado en el rediseño de v0, Remapea las clases utilitarias claras (heredadas) al sistema
+   visual oscuro, sin reescribir miles de clases en App.tsx.
+   Remapea las clases utilitarias claras (heredadas) al sistema
+   visual oscuro, sin reescribir miles de clases en App.tsx.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --d-bg:       #0B0E12;
+  --d-bg2:      #11151B;
+  --d-card:     #171C23;
+  --d-card-hi:  #1D232C;
+  --d-border:   rgba(255,255,255,0.12);   /* borde metálico tenue */
+  --d-border-hi:rgba(255,255,255,0.22);   /* borde metálico marcado */
+  --d-text:     #F4F4F1;
+  --d-text2:    #A5A9B0;
+  --d-text3:    #717680;
+  --d-accent:   #C7CCD1;   /* PLATA (el dorado queda solo en el logo) */
+  --d-accent-hi:#E4E7EA;   /* plata clara para brillos */
+  --d-btn:      #F2F1ED;   /* botón claro */
+  --d-btn-text: #111318;
+  --d-success:  #4ADE80;
+  --d-warn:     #FBBF24;
+  --d-danger:   #F87171;
+  --d-radius:   14px;
+}
+
+html, body, #root { height: 100%; }
+html, body { margin: 0; background: var(--d-bg); }
+body {
+  color: var(--d-text);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Selección de texto */
+::selection { background: rgba(255,255,255,0.22); color: #fff; }
+
+/* ─── REMAPEO DE FONDOS CLAROS → SUPERFICIES OSCURAS ─────────────── */
+@layer utilities {
+  /* Fondos de tarjeta/panel */
+  .bg-white        { background-color: var(--d-card) !important; }
+  .bg-\[\#f4f6f9\] { background-color: var(--d-bg2) !important; }
+  .bg-\[\#f9fafb\],
+  .bg-\[\#fafbfc\],
+  .bg-\[\#f9fafc\],
+  .bg-\[\#fafafa\],
+  .bg-\[\#eef1f5\],
+  .bg-\[\#f0f3f7\] { background-color: var(--d-bg2) !important; }
+  .bg-slate-50,
+  .bg-slate-100,
+  .bg-slate-50\/70,
+  .bg-slate-50\/50 { background-color: var(--d-bg2) !important; }
+  .bg-slate-200    { background-color: var(--d-card-hi) !important; }
+
+  /* Tintes morados claros → paneles elevados sutiles */
+  .bg-\[\#f1ecfd\],
+  .bg-\[\#f9f5ff\],
+  .bg-\[\#faf8ff\],
+  .bg-\[\#faf5ff\],
+  .bg-\[\#ede9fe\],
+  .bg-\[\#f0ecf9\],
+  .bg-\[\#ece7f8\],
+  .bg-\[\#e5def4\],
+  .bg-\[\#e8edf3\] { background-color: var(--d-card-hi) !important; }
+
+  /* Fondos morados heredados (headers, botones primarios) → NEGRO CON ORO.
+     Aquí vive el header del menú lateral que se veía morado. */
+  .bg-\[\#5b21b6\],
+  .bg-\[\#3b0d8f\],
+  .bg-\[\#7c3aed\],
+  .bg-\[\#1f2d3d\] {
+    background-color: var(--d-card-hi) !important;
+    border: 1px solid rgba(255,255,255,0.20) !important;
+    color: var(--d-text) !important;
+  }
+
+  /* ─── BORDES CLAROS → BORDES DORADOS FINOS ────────────────────── */
+  .border-\[\#e5def4\],
+  .border-\[\#e8edf3\],
+  .border-\[\#eef1f5\],
+  .border-\[\#f0f3f7\],
+  .border-\[\#f4f6f9\],
+  .border-\[\#ddd1f7\],
+  .border-\[\#f0ecf9\],
+  .border-\[\#c9b8f0\],
+  .border-slate-200,
+  .border-slate-100 { border-color: var(--d-border) !important; }
+  .border-\[\#7c3aed\],
+  .border-\[\#5b21b6\] { border-color: var(--d-border-hi) !important; }
+
+  /* ─── TEXTOS ───────────────────────────────────────────────────── */
+  /* Los morados que eran "acento" ahora son ORO */
+  .text-\[\#5b21b6\],
+  .text-\[\#7c3aed\] { color: var(--d-accent) !important; }
+  .text-\[\#1f2d3d\],
+  .text-\[\#445166\],
+  .text-gray-900,
+  .text-slate-800,
+  .text-slate-700 { color: var(--d-text) !important; }
+  .text-slate-600,
+  .text-slate-500 { color: var(--d-text2) !important; }
+  .text-slate-400,
+  .text-slate-300 { color: var(--d-text3) !important; }
+
+  /* Placeholders */
+  .placeholder\:text-slate-400::placeholder { color: var(--d-text3) !important; }
+
+  /* Sombras suaves y neutras sobre fondo oscuro */
+  .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.5) !important; }
+  .shadow-md { box-shadow: 0 4px 12px rgba(0,0,0,0.55) !important; }
+  .shadow-lg { box-shadow: 0 10px 30px rgba(0,0,0,0.6) !important; }
+  .shadow-xl { box-shadow: 0 16px 40px rgba(0,0,0,0.65) !important; }
+  .shadow-2xl { box-shadow: 0 24px 60px rgba(0,0,0,0.7) !important; }
+
+  /* ─── SUPERFICIES DE ESTADO CLARAS → TINTES OSCUROS TRANSLÚCIDOS ── */
+  /* Verde / éxito */
+  .bg-emerald-50, .bg-emerald-50\/50, .bg-emerald-50\/70, .bg-emerald-100,
+  .bg-green-50, .bg-green-50\/70, .bg-green-100, .bg-teal-50, .bg-teal-50\/60, .bg-teal-100
+    { background-color: rgba(74,222,128,0.12) !important; }
+  .border-emerald-200, .border-emerald-100, .border-green-200, .border-teal-200
+    { border-color: rgba(74,222,128,0.28) !important; }
+  .text-emerald-700, .text-emerald-600, .text-emerald-500,
+  .text-green-700, .text-green-600, .text-teal-700, .text-teal-600
+    { color: #6EE7B7 !important; }
+
+  /* Rojo / peligro */
+  .bg-red-50, .bg-red-50\/60, .bg-red-100, .bg-rose-50, .bg-rose-100
+    { background-color: rgba(248,113,113,0.12) !important; }
+  .border-red-200, .border-red-300, .border-red-100, .border-rose-200
+    { border-color: rgba(248,113,113,0.30) !important; }
+  .text-red-700, .text-red-600, .text-red-500, .text-rose-600, .text-rose-500
+    { color: #FCA5A5 !important; }
+  .bg-red-600, .bg-red-500 { background-color: #DC5B5B !important; }
+
+  /* Ámbar / advertencia */
+  .bg-amber-50, .bg-amber-50\/70, .bg-amber-100, .bg-yellow-50, .bg-yellow-100,
+  .bg-orange-50, .bg-orange-50\/60, .bg-orange-100
+    { background-color: rgba(251,191,36,0.12) !important; }
+  .border-amber-200, .border-amber-100, .border-yellow-200, .border-orange-200
+    { border-color: rgba(251,191,36,0.28) !important; }
+  .text-amber-700, .text-amber-600, .text-amber-500,
+  .text-yellow-700, .text-yellow-600, .text-orange-700, .text-orange-600
+    { color: #FCD34D !important; }
+
+  /* Azul/morado info → ACENTO ORO (aquí estaba el plata en la versión de v0) */
+  .bg-blue-50, .bg-blue-100, .bg-sky-50, .bg-sky-100, .bg-indigo-50, .bg-indigo-100,
+  .bg-purple-50, .bg-purple-50\/60, .bg-purple-100, .bg-violet-50, .bg-violet-100
+    { background-color: rgba(199,204,209,0.10) !important; }
+  .border-blue-200, .border-sky-200, .border-indigo-200, .border-purple-200, .border-violet-200
+    { border-color: rgba(255,255,255,0.20) !important; }
+  .text-blue-700, .text-blue-600, .text-sky-700, .text-indigo-700
+    { color: var(--d-accent-hi) !important; }
+}
+
+/* Inputs / selects / textareas: campos oscuros consistentes globalmente */
+input, select, textarea {
+  color-scheme: dark;
+}
+input::placeholder, textarea::placeholder { color: var(--d-text3); }
+
+/* ── Icono dentro de los campos de búsqueda y filtro ──────────────────────
+   Se aplica por CSS (selector de atributo) en lugar de envolver cada input
+   en JSX: así el icono queda al costado del campo sin alterar los layouts
+   flex/grid existentes. Trazo Lucide (search / filter), en tono oro. */
+input[placeholder^="Buscar"] {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%238B9099' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>");
+}
+input[placeholder^="Filtrar"] {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%238B9099' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3'/></svg>");
+}
+input[placeholder^="Buscar"], input[placeholder^="Filtrar"] {
+  background-repeat: no-repeat;
+  background-position: 11px center;
+  background-size: 15px 15px;
+  padding-left: 34px;
+}
